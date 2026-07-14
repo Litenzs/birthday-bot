@@ -3,6 +3,8 @@ from datetime import datetime, date, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
 import logging
+from flask import Flask
+import threading
 
 # Настройка логирования
 logging.basicConfig(
@@ -380,11 +382,23 @@ def main():
     application.add_handler(CallbackQueryHandler(delete_birthday, pattern=r"delete_\d+"))
     application.add_handler(CallbackQueryHandler(main_menu, pattern="main_menu"))
     
-    job_queue = application.job_queue
-    job_queue.run_repeating(send_daily_notifications, interval=3600, first=10)
+    if application.job_queue:
+        application.job_queue.run_repeating(send_daily_notifications, interval=3600, first=10)
+        logger.info("🔔 Ежедневные уведомления настроены")
+    else:
+        logger.warning("⚠️ JobQueue не доступен")
+    
+    # Запускаем Flask чтобы Render не убивал процесс
+    app = Flask(__name__)
+    
+    @app.route('/')
+    def home():
+        return "Bot is running!"
+    
+    threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
     
     logger.info("🤖 Бот запущен!")
-    print("🤖 Бот запущен! Нажми Ctrl+C для остановки")
+    print("🤖 Бот запущен!")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
