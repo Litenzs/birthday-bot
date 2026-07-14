@@ -1,4 +1,6 @@
 import asyncio
+import json
+import os
 from datetime import datetime, date, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -17,8 +19,36 @@ BOT_TOKEN = "8927521831:AAGhXl9q9VJbvOqEoED3qMHPy5T0Vf0IZJ8"
 
 WAITING_NAME, WAITING_DATE = range(2)
 
-birthdays = {}
-notification_users = set()
+# Файлы для хранения данных
+DATA_FILE = "birthdays.json"
+NOTIFY_FILE = "notifications.json"
+
+# Загрузка данных из файлов
+def load_data():
+    global birthdays, notification_users
+    
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, 'r', encoding='utf-8') as f:
+            birthdays = json.load(f)
+    else:
+        birthdays = {}
+    
+    if os.path.exists(NOTIFY_FILE):
+        with open(NOTIFY_FILE, 'r', encoding='utf-8') as f:
+            notification_users = set(json.load(f))
+    else:
+        notification_users = set()
+
+# Сохранение данных в файлы
+def save_data():
+    with open(DATA_FILE, 'w', encoding='utf-8') as f:
+        json.dump(birthdays, f, ensure_ascii=False, indent=2)
+    
+    with open(NOTIFY_FILE, 'w', encoding='utf-8') as f:
+        json.dump(list(notification_users), f)
+
+# Загружаем данные при старте
+load_data()
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -35,7 +65,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "🎂 Привет! Я бот для отслеживания дней рождений!\n\n"
         "📅 Показываю точное время до каждого ДР\n"
-        "🔔 Могу присылать ежедневные уведомления\n\n"
+        "🔔 Могу присылать ежедневные уведомления\n"
+        "💾 Все данные сохраняются и не теряются!\n\n"
         "Выбери действие:",
         reply_markup=keyboard
     )
@@ -48,10 +79,7 @@ async def start_add_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
 async def receive_name(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data['name'] = update.message.text
-    await update.message.reply_text(
-        "📅 Теперь введи дату рождения в формате ДД.ММ:\n"
-        "Например: 18.07"
-    )
+    await update.message.reply_text("📅 Теперь введи дату рождения в формате ДД.ММ\nНапример: 18.07")
     return WAITING_DATE
 
 async def receive_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -62,10 +90,7 @@ async def receive_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             test_date = date(2024, month, day)
         except ValueError:
-            await update.message.reply_text(
-                "❌ Некорректная дата! Попробуй еще раз.\n"
-                "Формат: ДД.ММ (например, 18.07)"
-            )
+            await update.message.reply_text("❌ Некорректная дата! Попробуй еще раз.\nФормат: ДД.ММ")
             return WAITING_DATE
         
         name = context.user_data['name']
@@ -76,9 +101,7 @@ async def receive_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         for bday in birthdays[user_id]:
             if bday['day'] == day and bday['month'] == month and bday['name'] == name:
-                await update.message.reply_text(
-                    f"⚠️ День рождения {name} ({day:02d}.{month:02d}) уже добавлен!"
-                )
+                await update.message.reply_text(f"⚠️ День рождения {name} ({day:02d}.{month:02d}) уже добавлен!")
                 return ConversationHandler.END
         
         birthdays[user_id].append({
@@ -88,6 +111,7 @@ async def receive_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         })
         
         birthdays[user_id].sort(key=lambda x: (x['month'], x['day']))
+        save_data()  # Сохраняем после добавления
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("➕ Добавить еще", callback_data="add_birthday")],
@@ -102,10 +126,7 @@ async def receive_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return ConversationHandler.END
         
     except (ValueError, IndexError):
-        await update.message.reply_text(
-            "❌ Неверный формат! Введи дату в формате ДД.ММ\n"
-            "Например: 18.07"
-        )
+        await update.message.reply_text("❌ Неверный формат! Введи дату как ДД.ММ\nНапример: 18.07")
         return WAITING_DATE
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -113,7 +134,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 def get_time_until(day, month):
-    now = datetime.now()
+    now = datetime.now() + timedelta(hours=3)  # МСК
     today = now.date()
     
     current_year_bday = datetime(now.year, month, day, 0, 0, 0)
@@ -167,8 +188,6 @@ async def list_birthdays(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status = "🎊 ЗАВТРА!"
         elif time_data['days'] <= 7:
             status = f"🔥 через {time_data['days']} дн. {time_data['hours']} ч."
-        elif time_data['days'] <= 30:
-            status = f"📅 через {time_data['days']} дн."
         else:
             status = f"📆 через {time_data['days']} дн."
         
@@ -273,7 +292,9 @@ async def toggle_notifications(update: Update, context: ContextTypes.DEFAULT_TYP
         status = "🔕 Уведомления выключены"
     else:
         notification_users.add(user_id)
-        status = "🔔 Уведомления включены!\nЯ буду присылать отсчет каждый день в 10:00"
+        status = "🔔 Уведомления включены!\nЯ буду присылать отсчет каждый день"
+    
+    save_data()  # Сохраняем
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ Добавить день рождения", callback_data="add_birthday")],
@@ -314,6 +335,7 @@ async def delete_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if 0 <= index < len(birthdays[user_id]):
         removed = birthdays[user_id].pop(index)
+        save_data()  # Сохраняем
         await query.edit_message_text(f"✅ День рождения {removed['name']} удален!\n\nНажми /start для возврата в меню")
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -334,8 +356,11 @@ async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await query.edit_message_text("🎂 Главное меню\n\nВыбери действие:", reply_markup=keyboard)
 
 async def send_daily_notifications(context):
-    current_time = datetime.now()
+    current_time = datetime.now() + timedelta(hours=3)
     logger.info(f"Запуск ежедневных уведомлений в {current_time}")
+    
+    # Перезагружаем данные из файла
+    load_data()
     
     for user_id in notification_users:
         try:
@@ -358,7 +383,7 @@ async def send_daily_notifications(context):
                 await context.bot.send_message(chat_id=user_id, text=text)
                 logger.info(f"Уведомление отправлено пользователю {user_id}")
         except Exception as e:
-            logger.error(f"Ошибка отправки уведомления пользователю {user_id}: {e}")
+            logger.error(f"Ошибка: {e}")
 
 def main():
     application = Application.builder().token(BOT_TOKEN).build()
@@ -385,10 +410,8 @@ def main():
     if application.job_queue:
         application.job_queue.run_repeating(send_daily_notifications, interval=3600, first=10)
         logger.info("🔔 Ежедневные уведомления настроены")
-    else:
-        logger.warning("⚠️ JobQueue не доступен")
     
-    # Запускаем Flask чтобы Render не убивал процесс
+    # Flask для Render
     app = Flask(__name__)
     
     @app.route('/')
@@ -397,8 +420,8 @@ def main():
     
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
     
-    logger.info("🤖 Бот запущен!")
-    print("🤖 Бот запущен!")
+    logger.info("🤖 Бот запущен с сохранением данных!")
+    print("🤖 Бот запущен! Данные сохраняются в файлы.")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
