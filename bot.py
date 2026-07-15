@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import datetime as dt
 from datetime import datetime, date, timedelta
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes, ConversationHandler
@@ -66,7 +67,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🎂 Привет! Я бот для отслеживания дней рождений!\n\n"
         "📅 Показываю точное время до каждого ДР\n"
         "🔔 Могу присылать ежедневные уведомления\n"
-        "💾 Все данные сохраняются и не теряются!\n\n"
+        "💾 Все данные сохраняются!\n\n"
         "Выбери действие:",
         reply_markup=keyboard
     )
@@ -111,7 +112,7 @@ async def receive_date(update: Update, context: ContextTypes.DEFAULT_TYPE):
         })
         
         birthdays[user_id].sort(key=lambda x: (x['month'], x['day']))
-        save_data()  # Сохраняем после добавления
+        save_data()
         
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("➕ Добавить еще", callback_data="add_birthday")],
@@ -134,7 +135,7 @@ async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
     return ConversationHandler.END
 
 def get_time_until(day, month):
-    now = datetime.now() + timedelta(hours=3)  # МСК
+    now = datetime.now() + timedelta(hours=3)
     today = now.date()
     
     current_year_bday = datetime(now.year, month, day, 0, 0, 0)
@@ -292,9 +293,9 @@ async def toggle_notifications(update: Update, context: ContextTypes.DEFAULT_TYP
         status = "🔕 Уведомления выключены"
     else:
         notification_users.add(user_id)
-        status = "🔔 Уведомления включены!\nЯ буду присылать отсчет каждый день"
+        status = "🔔 Уведомления включены!\nБот будет присылать отсчет каждый день в 10:00 МСК"
     
-    save_data()  # Сохраняем
+    save_data()
     
     keyboard = InlineKeyboardMarkup([
         [InlineKeyboardButton("➕ Добавить день рождения", callback_data="add_birthday")],
@@ -335,7 +336,7 @@ async def delete_birthday(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     if 0 <= index < len(birthdays[user_id]):
         removed = birthdays[user_id].pop(index)
-        save_data()  # Сохраняем
+        save_data()
         await query.edit_message_text(f"✅ День рождения {removed['name']} удален!\n\nНажми /start для возврата в меню")
 
 async def main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -359,7 +360,6 @@ async def send_daily_notifications(context):
     current_time = datetime.now() + timedelta(hours=3)
     logger.info(f"Запуск ежедневных уведомлений в {current_time}")
     
-    # Перезагружаем данные из файла
     load_data()
     
     for user_id in notification_users:
@@ -408,10 +408,10 @@ def main():
     application.add_handler(CallbackQueryHandler(main_menu, pattern="main_menu"))
     
     if application.job_queue:
-        application.job_queue.run_repeating(send_daily_notifications, interval=3600, first=10)
-        logger.info("🔔 Ежедневные уведомления настроены")
+        # Раз в день в 7:00 UTC = 10:00 МСК
+        application.job_queue.run_daily(send_daily_notifications, time=dt.time(hour=7, minute=0))
+        logger.info("🔔 Уведомления настроены на 10:00 МСК каждый день")
     
-    # Flask для Render
     app = Flask(__name__)
     
     @app.route('/')
@@ -420,8 +420,8 @@ def main():
     
     threading.Thread(target=lambda: app.run(host='0.0.0.0', port=10000), daemon=True).start()
     
-    logger.info("🤖 Бот запущен с сохранением данных!")
-    print("🤖 Бот запущен! Данные сохраняются в файлы.")
+    logger.info("🤖 Бот запущен!")
+    print("🤖 Бот запущен! Уведомления в 10:00 МСК")
     
     application.run_polling(allowed_updates=Update.ALL_TYPES)
 
