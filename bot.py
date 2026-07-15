@@ -16,7 +16,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-BOT_TOKEN = "8927521831:AAGhXl9q9VJbvOqEoED3qMHPy5T0Vf0IZJ8"
+BOT_TOKEN = "8927521831:AAGSwFvNCWesdnCY2TpdTQomY72lw6ixmYg"
 
 WAITING_NAME, WAITING_DATE = range(2)
 
